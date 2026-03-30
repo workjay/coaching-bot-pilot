@@ -1,6 +1,8 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { join } from 'path';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
@@ -25,7 +27,12 @@ function qdrantUrls(): {
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Serve uploaded knowledge-base files at /storage/...
+  app.useStaticAssets(join(process.cwd(), 'storage'), {
+    prefix: '/storage/',
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -54,6 +61,9 @@ async function bootstrap() {
   const q = qdrantUrls();
 
   logger.log(`Swagger UI: ${swaggerUrl}`);
+  logger.log(
+    `Knowledge base files (static): http://${appHost}:${port}/storage/`,
+  );
   logger.log(`Qdrant REST API: ${q.rest}`);
   logger.log(`Qdrant Web UI: ${q.dashboard}`);
   logger.log(`Qdrant GRPC: ${q.grpc}`);

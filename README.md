@@ -1,98 +1,200 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Coaching Bot Pilot — Local setup guide
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+This guide is written for anyone setting up the pilot on their own computer. **Docker** is used for the databases so you do not have to install PostgreSQL or Qdrant manually.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## What you need installed first
 
-## Description
+1. **Docker Desktop** — [Install Docker Desktop](https://www.docker.com/products/docker-desktop/) for Windows or Mac, start it, and wait until it shows “running”.
+2. **Node.js** (LTS, e.g. v20 or v22) — [Download Node.js](https://nodejs.org/). This runs the coaching bot API.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+---
 
-## Project setup
+## Step 1 — Get a free Gemini API key (for a quick test)
 
-```bash
-$ pnpm install
-```
+This pilot uses Google’s **Gemini** API for chat and embeddings. Google offers a **free API key** with usage limits, which is enough to try the pilot.
 
-## Compile and run the project
+1. Open **[Google AI Studio — API keys](https://aistudio.google.com/api-keys)** in your browser.
+2. Sign in with your Google account.
+3. Create an **API key** and copy it. You will paste it into `.env` in a later step.
 
-```bash
-# development
-$ pnpm run start
+Keep this key private (do not share it or commit it to git).
 
-# watch mode
-$ pnpm run start:dev
+---
 
-# production mode
-$ pnpm run start:prod
-```
+## Step 2 — Start PostgreSQL with Docker
 
-## Run tests
+The app stores chat history and knowledge-base metadata in **PostgreSQL**. The example configuration uses:
+
+- User: `postgres`
+- Password: `postgres`
+- Database name: `coaching_bot_pilot`
+- Port: `5432`
+
+### Option A — You do **not** have PostgreSQL yet (recommended)
+
+In a terminal, from any folder you like, run:
 
 ```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+docker run -d \
+  --name coaching-postgres \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=coaching_bot_pilot \
+  -p 5432:5432 \
+  -v coaching_postgres_data:/var/lib/postgresql/data \
+  postgres:16
 ```
 
-## Deployment
+- **`-d`** runs the database in the background.
+- Data is kept in a Docker volume named `coaching_postgres_data` so it survives restarts.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### Option B — You **already** have PostgreSQL installed
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+You can keep using your existing server instead of Docker:
+
+1. Create a database named **`coaching_bot_pilot`** (and a user/password if you do not use the default `postgres` user).
+2. If your PostgreSQL already uses **port 5432**, either:
+   - stop the local PostgreSQL service while you use this project, **or**
+   - run the Docker command above on another host port, for example **`-p 5433:5432`**, and set `DATABASE_URL` to use port `5433` (see Step 5).
+
+Your `DATABASE_URL` must point at that database. Example if everything is on localhost with the same names as `.env.example`:
+
+```text
+postgresql://postgres:postgres@localhost:5432/coaching_bot_pilot?schema=public
+```
+
+Change user, password, host, port, or database name to match your setup.
+
+---
+
+## Step 3 — Start Qdrant (vector database) with Docker
+
+Qdrant holds **vector embeddings** for the knowledge base search.
+
+1. Pull the image (once):
 
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+docker pull qdrant/qdrant
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+2. Run Qdrant:
 
-## Resources
+**macOS / Linux** — persists data in a folder `qdrant_storage` in your current directory:
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+docker run -d \
+  --name coaching-qdrant \
+  -p 6333:6333 \
+  -p 6334:6334 \
+  -v "$(pwd)/qdrant_storage:/qdrant/storage:z" \
+  qdrant/qdrant
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+**Windows** — bind mounts can be awkward; use a **named Docker volume** instead:
 
-## Support
+```bash
+docker run -d --name coaching-qdrant -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage qdrant/qdrant
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+- **6333** — HTTP API (the app uses this by default).
+- **6334** — gRPC (optional for this pilot).
 
-## Stay in touch
+For local Qdrant you usually **do not** need an API key; leave `QDRANT_API_KEY` empty in `.env` unless you have secured Qdrant.
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+---
 
-## License
+## Step 4 — Create `.env` from `.env.example` and add your Gemini key
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+The file **`.env.example`** lists every setting the app needs, with sensible defaults copied from the project template. **`GEMINI_API_KEY`** is intentionally an empty string there — you fill it in your own **`.env`** (never commit real keys to git).
+
+1. Open a terminal in the **project folder** (`coaching-bot-pilot`).
+
+2. **Create `.env` by copying the example file** (pick the command for your system):
+
+   **macOS / Linux:**
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   **Windows (Command Prompt):**
+
+   ```bat
+   copy .env.example .env
+   ```
+
+   **Windows (PowerShell):**
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+3. **Add your Gemini API key** (from Step 1):
+   - Open **`.env`** in any text editor (Notepad, VS Code, etc.).
+   - Find the line `GEMINI_API_KEY=""`.
+   - Paste your key **between the quotes**, for example: `GEMINI_API_KEY="your-key-here"`.
+   - Save the file.
+
+4. **Adjust other values only if needed:**
+   - **`DATABASE_URL`** — keep the default if you used **Option A** in Step 2 on port `5432`; otherwise set it to match your PostgreSQL (Step 2, Option B).
+
+Other variables (Gemini model names, RAG settings, Qdrant host/port) can stay as copied from `.env.example` for a first test.
+
+---
+
+## Step 5 — Install dependencies and database tables
+
+In the project folder:
+
+```bash
+npm install
+npx prisma migrate deploy
+```
+
+(`migrate deploy` applies the existing migrations to your PostgreSQL database.)
+
+---
+
+## Step 6 — Run the app
+
+```bash
+npm run start:dev
+```
+
+The API should listen on the port in `.env` (default **3000**). Check the terminal for the exact URL.
+
+---
+
+## Quick checklist
+
+| Item | How |
+|------|-----|
+| Docker | Docker Desktop running |
+| PostgreSQL | Docker container **or** existing install with DB `coaching_bot_pilot` |
+| Qdrant | Docker on ports **6333** / **6334** |
+| Gemini | API key from [aistudio.google.com/api-keys](https://aistudio.google.com/api-keys) in `.env` |
+| App | `npm install` → `npx prisma migrate deploy` → `npm run start:dev` |
+
+---
+
+## Stopping and removing the Docker containers (optional)
+
+```bash
+docker stop coaching-postgres coaching-qdrant
+```
+
+To remove them and start fresh (this deletes container config; named volumes like `coaching_postgres_data` keep data until you remove them with `docker volume rm`):
+
+```bash
+docker rm coaching-postgres coaching-qdrant
+```
+
+---
+
+## Troubleshooting
+
+- **“Port already in use”** for `5432`, `6333`, or `3000` — another program is using that port. Stop that program, or change the port in Docker (`-p`) and/or in `.env`.
+- **Database connection errors** — confirm PostgreSQL is running (`docker ps`), and that `DATABASE_URL` matches user, password, database name, host, and port.
+- **Qdrant connection errors** — confirm the Qdrant container is running and `QDRANT_HOST` / `QDRANT_PORT` in `.env` match (default `localhost` and `6333`).
+
+For official Qdrant Docker details, see the [Qdrant documentation](https://qdrant.tech/documentation/guides/installation/).
